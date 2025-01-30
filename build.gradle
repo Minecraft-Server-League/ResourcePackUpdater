@@ -2,7 +2,7 @@ import groovy.json.JsonSlurper
 import org.apache.tools.ant.filters.ReplaceTokens
 
 plugins {
-    id 'fabric-loom' version '1.10.1'
+    id 'fabric-loom' version '1.7-SNAPSHOT'
     id "de.undercouch.download" version "4.1.2"
     id 'maven-publish'
 }
@@ -10,7 +10,7 @@ plugins {
 version = project.mod_version
 group = project.maven_group
 
-String default_minecraft_version = "1.20.1"
+String default_minecraft_version = "1.20.1" // 更新默认值为1.20.1
 Properties localProperties = new Properties()
 String minecraft_version
 if (project.rootProject.file('build.properties').exists()) {
@@ -29,9 +29,10 @@ int minecraft_main_version = minecraft_version.split("\\.")[1] as int
 String minecraft_version_int = minecraft_version.split("\\.")[0] +
         minecraft_version.split("\\.")[1].padLeft(2, '0') +
         (minecraft_version.split("\\.").length > 2 ? minecraft_version.split("\\.")[2].padLeft(2, '0') : "00")
-boolean is_1_19_3 = minecraft_version == "1.19.3"
-String parchment_version = is_1_19_3 ? "N/A" : new XmlSlurper().parse("https://ldtteam.jfrog.io/artifactory/parchmentmc-internal/org/parchmentmc/data/parchment-${minecraft_version}/maven-metadata.xml").versioning.release
-
+boolean is_1_20_plus = minecraft_main_version >= 20 // 处理是否为 1.20+ 的检查
+String parchment_version = new XmlSlurper()
+        .parse("https://ldtteam.jfrog.io/artifactory/parchmentmc-internal/org/parchmentmc/data/parchment-${minecraft_version}/maven-metadata.xml")
+        .versioning?.release ?: "N/A"
 
 rootProject.ext.fabric_loader_version = new JsonSlurper().parse(("https://meta.fabricmc.net/v2/versions/loader/" + minecraft_version).toURL())[0]["loader"]["version"]
 rootProject.ext.forge_version = minecraft_version + "-" + new JsonSlurper().parse(("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json").toURL())["promos"][minecraft_version + "-latest"]
@@ -51,16 +52,18 @@ repositories {
 
 dependencies {
     annotationProcessor 'systems.manifold:manifold-preprocessor:2023.1.0'
+
     minecraft "com.mojang:minecraft:${minecraft_version}"
-    mappings is_1_19_3 ? loom.officialMojangMappings() : loom.layered() {
+    
+    mappings loom.layered() {
         officialMojangMappings()
         parchment("org.parchmentmc.data:parchment-${minecraft_version}:${parchment_version}@zip")
     }
-    modImplementation "net.fabricmc:fabric-loader:${project.fabric_loader_version}"
 
+    modImplementation "net.fabricmc:fabric-loader:${project.fabric_loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
-    modImplementation ("com.terraformersmc:modmenu:${project.mod_menu_version}") {
+    modImplementation("com.terraformersmc:modmenu:${project.mod_menu_version}") {
         transitive = false
     }
 }
@@ -77,17 +80,22 @@ processResources {
 def targetJavaVersion = 17
 tasks.withType(JavaCompile).configureEach {
     it.options.encoding = "UTF-8"
-    if (minecraft_main_version == 20) {
-        it.options.release.set(17)
+    if (minecraft_main_version <= 16) {
+        def targetVersion = 8
+        if (JavaVersion.current().isJava9Compatible()) {
+            options.release.set(targetVersion)
+        }
+    } else if (minecraft_main_version >= 17 && minecraft_main_version < 20) {
+        options.release.set(16)
     } else {
-        it.options.release.set(17)
+        options.release.set(17)
     }
-    it.options.compilerArgs += ['-Xplugin:Manifold', '-AMC_VERSION=' + minecraft_version_int]
+    options.compilerArgs += ['-Xplugin:Manifold', '-AMC_VERSION=' + minecraft_version_int]
 }
 
 task setupFiles() {
     download {
-        src "https://github.com/jonafanho/Minecraft-Mappings/archive/refs/heads/1.${minecraft_main_version}.3.zip"
+        src "https://github.com/jonafanho/Minecraft-Mappings/archive/refs/heads/1.${minecraft_main_version}${minecraft_main_version >= 20 ? ".1" : ""}.zip"
         dest "src/main/java/cn/zbx1425/resourcepackupdater/mappings/files.zip"
         overwrite true
     }
@@ -95,14 +103,14 @@ task setupFiles() {
     copy {
         outputs.upToDateWhen { false }
         from (zipTree("src/main/java/cn/zbx1425/resourcepackupdater/mappings/files.zip").matching {
-            include "**/Text.java"
-        }){ eachFile { file -> file.relativePath = new RelativePath(true, file.relativePath.segments.drop(1) as String[]) } }
+                include "**/Text.java"
+            }){ eachFile { file -> file.relativePath = new RelativePath(true, file.relativePath.segments.drop(1) as String[]) } }
         into "src/main/java/cn/zbx1425/resourcepackupdater/mappings"
         filter(ReplaceTokens, tokens: ["package": "cn.zbx1425.resourcepackupdater.mappings"])
     }
 
     ant.delete(file: "src/main/java/cn/zbx1425/resourcepackupdater/mappings/files.zip")
-    ant.delete(dir: "src/main/java/cn/zbx1425/resourcepackupdater/mappings/Minecraft-Mappings-1.${minecraft_main_version}.3")
+    ant.delete(dir: "src/main/java/cn/zbx1425/resourcepackupdater/mappings/Minecraft-Mappings-1.${minecraft_main_version}${minecraft_main_version >= 20 ? ".1" : ""}")
 }
 
 afterEvaluate {
@@ -130,7 +138,9 @@ publishing {
             from components.java
         }
     }
+
     repositories {
+        // 添加发布仓库
     }
 }
 
@@ -142,10 +152,4 @@ static def getModrinthVersion(loader, minecraftVersion, projectId) {
         }
     }
     return ""
-}
-
-static def getParchmentVersion(minecraftVersion) {
-    def url = "https://ldtteam.jfrog.io/artifactory/parchmentmc-internal/org/parchmentmc/data/parchment-" + minecraftVersion + "/maven-metadata.xml"
-    def data = new XmlParser().parse(url)
-    return data.versioning.latest.text()
 }
