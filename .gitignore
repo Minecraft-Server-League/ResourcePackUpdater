@@ -7,7 +7,7 @@
 
 # IntelliJ
 out/
-# mpeltonen/sbt-idea plugin
+# mpeltonen/sbt-idea plugi
 .idea_modules/
 
 # JIRA plugin
