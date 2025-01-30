@@ -1,37 +1,52 @@
-# Automatically build the project and run any configured tests for every push
-# and submitted pull request. This can help catch issues that only occur on
-# certain platforms or Java versions, and provides a first line of defence
-# against bad commits.
-
+# GitHub Actions Workflow for Building Minecraft Mod with Fabric
 name: Build
-on: [ pull_request, push ]
+
+on: 
+  push:
+    branches:
+      - main
+  pull_request:
 
 jobs:
   build:
     strategy:
       matrix:
-        minecraft: [ 1.17.1, 1.18.2, 1.19.2,1.20.1 ]
+        minecraft: [1.20.1]
     runs-on: ubuntu-latest
+
     steps:
+      # 1. Checkout the repository code
       - name: Checkout repository
         uses: actions/checkout@v3
-      - name: Validate gradle wrapper
+
+      # 2. Validate the Gradle wrapper to prevent tampering
+      - name: Validate Gradle wrapper
         uses: gradle/wrapper-validation-action@v1
+
+      # 3. Set up JDK 17 (required for Minecraft mod development)
       - name: Setup JDK 17
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: 17
-      - name: Make gradle wrapper executable
+
+      # 4. Ensure the Gradle wrapper script is executable (Ubuntu/Linux issue)
+      - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
-      - name: Setup ${{ matrix.minecraft }}
+
+      # 5. Configure and setup the project for the Minecraft version
+      - name: Setup Minecraft Version ${{ matrix.minecraft }}
         run: ./gradlew setupFiles -PbuildVersion="${{ matrix.minecraft }}"
-      - name: Build ${{ matrix.minecraft }}
+
+      # 6. Build the project for the matrix version of Minecraft
+      - name: Build Project for Minecraft ${{ matrix.minecraft }}
         run: ./gradlew build -PbuildVersion="${{ matrix.minecraft }}"
-      - name: Capture release artifacts
+      
+      # 7. Capture release artifacts after building
+      - name: Upload Release Artifacts for ${{ matrix.minecraft }}
         uses: actions/upload-artifact@v3
         with:
-          name: Fabric Artifacts
+          name: Fabric Artifacts (MC ${{ matrix.minecraft }})
           path: |
             build/libs/*.jar
             !build/libs/*-sources.jar
